@@ -87,3 +87,26 @@ atau biaya. `since_id` mengurangi pengambilan ulang postingan. HTTP 429 berarti
 rate limit; bot mencoba lagi pada interval berikutnya. Kuota/billing habis tetap
 memerlukan tindakan di developer console. Perbesar `POLL_SECONDS` untuk
 mengurangi frekuensi request.
+
+## Experiment: direct X scraper (read-only)
+
+Branch `experiment/direct-x-scraper` adds a separate `scrape_x.py` command.
+It does not import the WhatsApp sender, send messages, read Fonnte credentials,
+or modify the RSS bot database. Existing RSS bot code is unchanged.
+
+```sh
+python -m unittest -q
+python scrape_x.py
+```
+
+Uses installed Playwright Python and `/usr/bin/chromium`, inherited HTTPS proxy,
+and normal TLS verification. Reads only articles rendered on the public profile;
+no login automation, CAPTCHA bypass, private API, or RSS.app fallback. Output is
+JSON on stdout. It fails explicitly if no recognizable posts are rendered.
+It does not paginate, run a polling loop, or prove complete/reply coverage.
+
+17 local tests passed, including author filtering, sorting and deduplication.
+Live validation is blocked by the environment proxy denying x.com (CONNECT 403).
+The x.com domain addition is saved in the environment draft; applying it does
+not guarantee X will serve a public timeline. A login wall or JS resource
+restrictions may remain. This is an experiment, not a verified RSS replacement.
