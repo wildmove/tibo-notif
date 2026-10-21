@@ -1,3 +1,48 @@
+# Current status: direct public X HTML scraper
+
+The experimental scraper now works without Chromium, Playwright, login cookies,
+RSS.app, or X developer API. It uses urllib with the existing HTTPS proxy and CA
+verification to read https://x.com/thsottiaux, then decodes JSON strings already
+embedded in script tags. No page JavaScript is executed and no private API is called.
+
+Live validation returned 5 posts, including Day 15 reset and the full long-form
+usage correction post. Only Tibo-authored timeline posts are retained; nested
+quotes are excluded. Long-form note text overrides abbreviated text. If expanded
+text is required but missing, the post is skipped instead of silently truncated.
+
+Read-only workflow:
+
+```sh
+cd /workspace/tibo-notif
+python -m unittest -q
+python scrape_x.py
+JUDGE_MODEL=gemini-3.5-flash-lite python monitor_judge.py
+JUDGE_MODEL=gemini-3.5-flash-lite python -u monitor_judge.py --loop
+```
+
+Monitor polls every 600 seconds, filters reset/resets mentions, then passes entire
+extracted text to Gemini. First run considers newest post only; subsequent newer
+posts enter a persistent queue. At most one candidate is judged per cycle. Cached
+judgments do not consume an API request. Default 15 attempted calls per Pacific
+calendar day, 256 output tokens and 4000 input characters. Failures count toward
+budget; oversized posts are not silently truncated. Project quota can be consumed
+by other applications too. Existing gemini_api_key is reused. No Fonnte sender is
+imported or called by the experimental monitor. It is still a read-only workflow.
+
+Live Gemini 3.5 Flash-Lite classified Day 15 as reset with exact evidence
+"and reset. Enjoy.". A live source poll skipped newest Day 16 because it contains
+no reset mention. 30 local tests passed. No WhatsApp was sent by these checks.
+
+Limits: public HTML can change or become inaccessible; only the visible public
+page is read, with no pagination/reply coverage guarantee. No images or additional
+thread context. Empty or changed page data causes an explicit error. Live processes
+still depend on the cloud environment staying active. Preserve .local/ state.
+
+The earlier RSS bot and its database remain separate. Historical implementation
+notes below describe previous versions and failures, superseded by this section.
+
+---
+
 # Tibo Notif
 
 Bot Python 3.12+ tanpa dependency tambahan. Pantau postingan dan balasan
