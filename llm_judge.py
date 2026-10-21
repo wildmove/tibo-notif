@@ -32,7 +32,7 @@ class Judge:
             raise RuntimeError('JUDGE_PROVIDER must be gemini or openai')
         self.key = ((os.getenv('gemini_api_key') or os.getenv('GEMINI_API_KEY'))
                     if self.provider == 'gemini' else os.getenv('JUDGE_API_KEY'))
-        self.model = os.getenv('JUDGE_MODEL', 'gemini-2.5-flash-lite' if self.provider == 'gemini' else '')
+        self.model = os.getenv('JUDGE_MODEL', 'gemini-3.5-flash-lite' if self.provider == 'gemini' else '')
         self.base = ('https://generativelanguage.googleapis.com/v1beta' if self.provider == 'gemini'
                      else os.getenv('JUDGE_BASE_URL', 'https://api.openai.com/v1').rstrip('/'))
         parsed = urllib.parse.urlsplit(self.base)
@@ -91,8 +91,7 @@ class Judge:
                        'contents': [{'role': 'user', 'parts': [{'text': json.dumps(
                            {'author': 'thsottiaux', 'text': text}, ensure_ascii=False)}]}],
                        'generationConfig': {'responseMimeType': 'application/json',
-                                            'maxOutputTokens': 256,
-                                            'thinkingConfig': {'thinkingBudget': 0}}}
+                                            'maxOutputTokens': 256}}
             url = self.base + '/models/' + urllib.parse.quote(self.model, safe='') + ':generateContent'
             headers = {'x-goog-api-key': self.key, 'Content-Type': 'application/json'}
         else:

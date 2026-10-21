@@ -180,3 +180,16 @@ Gemini; only the LLM decides reset/not_reset/uncertain. The prefilter never decl
 a reset. Posts using only synonyms, pictures, or other languages may be skipped.
 The 600-second interval, 15-attempt daily cap and no-Fonnte mode remain unchanged.
 27 local tests pass; judge accuracy and live scraper remain unverified.
+
+### Verified Gemini model update
+
+Default is now `gemini-3.5-flash-lite`. The API rejected 2.5 Flash-Lite for new
+users and rejected the old thinkingBudget parameter for 3.5. That parameter is
+removed; the 256-token output cap, cached verdicts and 15-attempt daily budget
+remain. Thinking-token usage has not been separately verified for this model.
+A live Gemini request classified the full Day 15 announcement as reset, citing
+`and reset. Enjoy.`. No Fonnte call was made. This verifies one real verdict,
+not general classification accuracy or the complete X scraping workflow.
+Model setting saved to environment draft; review/save/publish is separate.
+Chromium 154 uses ~/.local/share/pki/nssdb on this machine; the managed proxy CA
+was imported there with certutil, preserving TLS verification.
