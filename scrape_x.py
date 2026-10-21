@@ -60,6 +60,7 @@ def scrape():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fixture', help='Read local article JSON instead of accessing X')
+    parser.add_argument('--judge', action='store_true', help='Judge every extracted full text with LLM; never sends WhatsApp')
     args = parser.parse_args()
     try:
         if args.fixture:
@@ -67,6 +68,13 @@ def main():
                 posts = extract_posts(json.load(file))
         else:
             posts = scrape()
+        if args.judge:
+            from pathlib import Path
+            from llm_judge import Judge
+            Path('.local').mkdir(exist_ok=True)
+            judge = Judge()
+            for post in posts:
+                post['judgment'] = judge.evaluate(post)
         print(json.dumps({'mode': 'read-only', 'posts': posts}, ensure_ascii=False, indent=2))
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)

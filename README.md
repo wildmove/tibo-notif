@@ -110,3 +110,19 @@ Live validation is blocked by the environment proxy denying x.com (CONNECT 403).
 The x.com domain addition is saved in the environment draft; applying it does
 not guarantee X will serve a public timeline. A login wall or JS resource
 restrictions may remain. This is an experiment, not a verified RSS replacement.
+
+## LLM judge prototype (not activated)
+
+`scrape_x.py --judge` passes each complete extracted text to an OpenAI-compatible
+API, with no keyword prefilter. Output is reset/not_reset/uncertain with a reason
+and exact evidence. Responses are schema-validated and cached by model, prompt,
+post ID and full text; invalid/incomplete responses are errors, never negatives.
+This read-only prototype cannot send WhatsApp and is not connected to the live bot.
+Requires JUDGE_API_KEY, JUDGE_MODEL and optionally JUDGE_BASE_URL; no requirements
+or paid API configuration have been activated. User prefers their ChatGPT
+subscription: it cannot be used as a Python API credential. An assistant-run
+review is possible while a task is running, not an unattended 5-minute loop from
+this chat. Existing live RSS bot still uses its previous keyword detection.
+20 local tests pass; mocked API tests validate plumbing only, not LLM accuracy.
+Full extracted text does not guarantee full original text when X renders a
+truncated post; thread/quote context and media are not fetched by this prototype.
