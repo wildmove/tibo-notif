@@ -1,36 +1,33 @@
-# Active main workflow: X → Gemini → Fonnte
+# Tibo Notif
 
-`python monitor_judge.py --loop` now sends WhatsApp notifications by default.
-Use `--dry-run` to disable sends. Poll interval is 600 seconds.
-Only Gemini verdict `reset` sends; `not_reset`, `uncertain`, skipped posts and
-judge failures never send. Message: `Info reset codex brader!` plus post link.
-Requires gemini_api_key, FONNTE_TOKEN, WHATSAPP_TO (group IDs supported).
-Set JUDGE_MODEL=gemini-3.5-flash-lite; no RSS feed required for this workflow.
+Bot pemantau postingan **Tibo (@thsottiaux)** untuk mengirim info reset limit
+Codex ke WhatsApp lewat Fonnte. Postingan diambil langsung dari HTML publik X;
+tidak membutuhkan RSS.app atau token X API.
 
-## Notification flow
+## Alur
 
 ```mermaid
 flowchart TD
-    A[Poll every 10 minutes] --> B[Read Tibo posts from public X HTML]
-    B --> C{New posts?}
-    C -- No --> W[Wait for next cycle]
-    C -- Yes --> D[Queue newer posts]
-    D --> E{Contains reset or resets?}
-    E -- No --> F[Record skip without Gemini call]
-    E -- Yes --> G{Cached judgment?}
-    G -- Yes --> J{Verdict}
-    G -- No --> H{Local API budget available?}
-    H -- No --> P[Keep pending for later]
-    H -- Yes --> I[Gemini 3.5 Flash-Lite reads entire extracted text]
+    A[Cek tiap 10 menit] --> B[Ambil postingan Tibo dari HTML publik X]
+    B --> C{Ada postingan baru?}
+    C -- Tidak --> W[Tunggu siklus berikutnya]
+    C -- Ya --> D[Masukkan ke antrean]
+    D --> E{Ada kata reset atau resets?}
+    E -- Tidak --> F[Catat skip tanpa panggil Gemini]
+    E -- Ya --> G{Hasil judge sudah di-cache?}
+    G -- Ya --> J{Verdict}
+    G -- Belum --> H{Budget API lokal tersedia?}
+    H -- Tidak --> P[Simpan antrean untuk nanti]
+    H -- Ya --> I[Gemini 3.5 Flash-Lite membaca seluruh teks]
     I -- Error --> P
-    I -- Valid result --> S[Save judgment]
+    I -- Hasil valid --> S[Simpan hasil judge]
     S --> J
-    J -- not_reset or uncertain --> N[No WhatsApp notification]
-    J -- reset --> K{Already notified?}
-    K -- Yes --> N
-    K -- No --> L[Send to WhatsApp group via Fonnte]
-    L -- Accepted --> M[Record notification]
-    L -- Failed --> R[Retry later using saved verdict]
+    J -- not_reset atau uncertain --> N[Tidak kirim WA]
+    J -- reset --> K{Sudah pernah dikirim?}
+    K -- Ya --> N
+    K -- Belum --> L[Kirim ke WhatsApp lewat Fonnte]
+    L -- Diterima API --> M[Catat riwayat kiriman]
+    L -- Gagal --> R[Coba lagi memakai verdict tersimpan]
     F --> W
     P --> W
     N --> W
@@ -39,266 +36,142 @@ flowchart TD
     W --> A
 ```
 
-- At most one new judgment per cycle; cached judgments reuse the previous result.
-- Default local budget: 15 attempted API calls per Pacific calendar day. This
-  is a safety cap, not a guarantee against shared project quota exhaustion.
-- First startup considers only the newest visible post; later polls queue newer IDs.
-- Message: **Info reset codex brader!** followed by the X post link.
-- Mention everyone is **not enabled**: no supported parameter has been verified
-  in Fonnte's documentation.
-- Source fetch failures do not mean there were no posts. Public-page coverage
-  and uptime depend on X access and the cloud environment staying active.
+Pesan notifikasi:
 
-Judgments persist before sending. Fonnte failures remain retryable without a new
-LLM call. Successful API acceptance is recorded in `notified`; previous RSS sent
-IDs are imported to prevent resending historical notifications. Crash/timeouts
-between provider acceptance and DB commit can still duplicate a message; API
-acceptance is not proof of handset delivery.
+> Info reset codex brader!  
+> https://x.com/thsottiaux/status/POST_ID
 
-Keep only this monitor running; stop the old `bot.py` RSS loop during migration.
-Log: `.local/monitor-judge.log`; PID: `.local/monitor-judge.pid`.
-Preserve both monitor and judge SQLite files. 32 local tests passed.
-The read-only historical notes below describe earlier versions.
+Mention semua anggota grup **belum diaktifkan** karena parameter pendukungnya
+belum ditemukan di dokumentasi Fonnte.
 
----
+## Kebutuhan
 
-# Current status: direct public X HTML scraper
+- Linux dan Python 3.12+; hanya standard library, tanpa instal paket tambahan.
+- API key Gemini dan device WhatsApp yang sudah terhubung ke Fonnte.
+- Akses HTTPS ke `x.com`, `generativelanguage.googleapis.com`, dan `api.fonnte.com`.
+- Pertahankan proxy dan CA trust bawaan jika dijalankan di Codex Cloud.
 
-The experimental scraper now works without Chromium, Playwright, login cookies,
-RSS.app, or X developer API. It uses urllib with the existing HTTPS proxy and CA
-verification to read https://x.com/thsottiaux, then decodes JSON strings already
-embedded in script tags. No page JavaScript is executed and no private API is called.
+## Konfigurasi
 
-Live validation returned 5 posts, including Day 15 reset and the full long-form
-usage correction post. Only Tibo-authored timeline posts are retained; nested
-quotes are excluded. Long-form note text overrides abbreviated text. If expanded
-text is required but missing, the post is skipped instead of silently truncated.
+Isi kredensial lewat environment settings atau environment proses. Jangan commit
+API key, nomor tujuan, ID grup, atau database lokal ke repository.
 
-Read-only workflow:
+| Variabel | Keterangan |
+| --- | --- |
+| `gemini_api_key` atau `GEMINI_API_KEY` | API key Gemini; salah satu wajib |
+| `FONNTE_TOKEN` | Token device Fonnte; wajib untuk pengiriman |
+| `WHATSAPP_TO` | Nomor internasional seperti `628…` atau ID grup seperti `120…@g.us` |
+| `JUDGE_PROVIDER` | Default `gemini` |
+| `JUDGE_MODEL` | Default `gemini-3.5-flash-lite` |
+| `JUDGE_DAILY_MAX_CALLS` | Default `15` percobaan API per hari kalender Pacific |
+| `JUDGE_RUN_MAX_CALLS` | Default `5`; monitor memproses maksimal satu kandidat per siklus |
 
-```sh
+Interval monitor adalah **600 detik** di `monitor_judge.py`.
+`POLL_SECONDS` dan `SOURCE` dari bot lama tidak mengatur monitor ini.
+
+## Menjalankan
+
+Gunakan checkout yang sudah ada; tidak perlu membuat Git worktree baru.
+Di cloud ini, direktori checkout adalah `/workspace/tibo-notif`.
+
+```bash
 cd /workspace/tibo-notif
+
+# Tes lokal: API/pengiriman dalam tes memakai mock.
 python -m unittest -q
+
+# Baca postingan X saja, tanpa Gemini atau WhatsApp.
 python scrape_x.py
-JUDGE_MODEL=gemini-3.5-flash-lite python monitor_judge.py
-JUDGE_MODEL=gemini-3.5-flash-lite python -u monitor_judge.py --loop
+
+# Satu siklus judge tanpa kirim WhatsApp; tetap dapat memakai kuota Gemini.
+python monitor_judge.py --dry-run
+
+# Satu siklus live: bisa mengirim WhatsApp jika verdict reset.
+python monitor_judge.py
+
+# Monitor live setiap 10 menit.
+python -u monitor_judge.py --loop
 ```
 
-Monitor polls every 600 seconds, filters reset/resets mentions, then passes entire
-extracted text to Gemini. First run considers newest post only; subsequent newer
-posts enter a persistent queue. At most one candidate is judged per cycle. Cached
-judgments do not consume an API request. Default 15 attempted calls per Pacific
-calendar day, 256 output tokens and 4000 input characters. Failures count toward
-budget; oversized posts are not silently truncated. Project quota can be consumed
-by other applications too. Existing gemini_api_key is reused. No Fonnte sender is
-imported or called by the experimental monitor. It is still a read-only workflow.
+Mode `--dry-run` tetap menyimpan antrean dan verdict. Verdict `reset` yang belum
+terkirim bisa dikirim ketika mode live dijalankan kemudian.
 
-Live Gemini 3.5 Flash-Lite classified Day 15 as reset with exact evidence
-"and reset. Enjoy.". A live source poll skipped newest Day 16 because it contains
-no reset mention. 30 local tests passed. No WhatsApp was sent by these checks.
+Untuk menjalankan di background:
 
-Limits: public HTML can change or become inaccessible; only the visible public
-page is read, with no pagination/reply coverage guarantee. No images or additional
-thread context. Empty or changed page data causes an explicit error. Live processes
-still depend on the cloud environment staying active. Preserve .local/ state.
-
-The earlier RSS bot and its database remain separate. Historical implementation
-notes below describe previous versions and failures, superseded by this section.
-
----
-
-# Tibo Notif
-
-Bot Python 3.12+ tanpa dependency tambahan. Pantau postingan dan balasan
-@thsottiaux lewat RSS (default) atau X API v2, cari kandidat pengumuman reset limit Codex,
-dan kirim link postingan lewat Fonnte.
-
-## Konfigurasi aman
-
-Isi lewat environment settings, jangan commit token atau kirim ke chat:
-
-- `SOURCE`: default `rss`; gunakan `x` hanya jika ingin API resmi X.
-- `RSS_FEED_URL`: URL RSS/XML HTTPS untuk akun @thsottiaux.
-  Buat feed di https://rss.app/rss-feed/create-twitter-rss-feed dengan URL
-  https://x.com/thsottiaux, lalu salin URL feed yang dihasilkan (bukan halaman profil).
-  Jika URL berisi token privat, isi hanya lewat environment settings.
-- `X_BEARER_TOKEN`: hanya diperlukan untuk `SOURCE=x`, tidak dipakai mode RSS.
-- `FONNTE_TOKEN`: API token device Fonnte; isi sebagai secret di environment settings.
-  Hubungkan device WhatsApp di dashboard Fonnte terlebih dahulu.
-- `WHATSAPP_TO`: nomor tujuan internasional, misalnya 62812..., tanpa +.
-- `POLL_SECONDS`: default 300, minimum 60; sesuaikan kuota X API.
-- `STATE_PATH`: default `.local/state.sqlite3`; simpan file ini untuk resume.
-
-Destinasi HTTPS: host URL RSS (misalnya `rss.app`) dan `api.fonnte.com`.
-`api.x.com` hanya dipakai mode X. Host feed dan redirect perlu diizinkan di network settings.
-Gunakan nomor tujuan milik sendiri atau penerima yang setuju menerima notifikasi.
-Konfigurasi Meta, phone number ID, dan template WhatsApp tidak dipakai lagi.
-Hapus requirement Meta lama di environment settings jika masih tampil.
-
-## Jalankan di Codex Cloud
-
-Gunakan checkout yang sudah ada; tidak perlu worktree baru.
-
-```sh
-cd /workspace/tibo-notif
-python -m unittest -v
-python bot.py --demo     # offline, tidak mengirim WA
-python bot.py --check-feed # baca RSS, tanpa WA/token X/perubahan state
-python bot.py --once     # live: satu poll, bisa mengirim WA
-python bot.py            # live: loop sampai dihentikan dengan Ctrl+C
+```bash
+mkdir -p .local
+nohup python -u monitor_judge.py --loop >> .local/monitor-judge.log 2>&1 &
+echo $! > .local/monitor-judge.pid
 ```
 
-Tidak perlu instal paket. `--once` dan loop live memerlukan semua konfigurasi.
-Untuk proses background, arahkan stdout/stderr ke `.local/bot.log` dan simpan
-PID agar hanya proses milik bot ini yang dihentikan. File lock mencegah dua
-instance memakai state yang sama. Proses hidup tidak dipulihkan otomatis saat
-Codex Cloud berhenti; environment ini tidak menjamin layanan 24/7.
+Jalankan satu monitor saja. File lock mencegah dua proses monitor memakai state
+yang sama. Hentikan proses bot lama sebelum menggantinya agar tidak ada dua pengirim.
 
-## Perilaku dan batasan
+## Melihat status
 
-- Poll pertama dapat mengirim notifikasi postingan lama yang ada di feed.
-- Mode RSS membaca ulang semua item yang tersedia supaya postingan yang masuk
-  terlambat tidak terlewat. ID postingan yang sudah dikirim disimpan di SQLite.
-  Mode X menggunakan `since_id` dan pagination.
-- Kecepatan notifikasi RSS tergantung jadwal refresh penyedia feed, bukan hanya
-  interval bot. Pastikan feed mencakup balasan dan teks lengkap. Feed kosong,
-  terpotong, atau tidak diperbarui bisa menyebabkan info terlewat. `--check-feed`
-  menampilkan jumlah item yang dikenali; ini tidak membuktikan kelengkapan feed.
-- Simpan cursor setelah postingan berhasil diproses; kiriman gagal dicoba lagi.
-- Deteksi berbasis kata Codex + reset/refresh/replenish + limit/quota/usage/credit,
-  atau pengumuman harian Tibo dengan pola Day N/ dan kata reset.
-  Ini kandidat info, bukan konfirmasi bahwa limit akun pengguna sudah reset.
-  Postingan di luar pola ini, konteks thread, gambar, dan variasi bahasa bisa luput;
-  klaim masa depan atau pertanyaan bisa memicu notifikasi.
-- SQLite mencegah duplikat normal dan setelah restart. Crash setelah Fonnte menerima
-  pesan tetapi sebelum commit SQLite, atau timeout respons Fonnte, bisa menghasilkan
-  duplikat saat retry. Tidak menjanjikan exactly-once delivery.
-- Respons Fonnte hanya membuktikan pesan diterima API, bukan terkirim ke handset.
-- Jika state hilang, postingan lama bisa diberitahukan lagi. Jika downtime melebihi
-  jangkauan timeline X, beberapa postingan bisa terlewat.
+```bash
+# Log terbaru atau pantau langsung (Ctrl+C hanya menghentikan tampilan log).
+tail -n 20 .local/monitor-judge.log
+tail -f .local/monitor-judge.log
 
-## Validasi saat implementasi
-
-14 unit test dan demo offline lulus. Akses live X dan pengiriman WA belum
-terverifikasi karena URL feed dan kredensial belum tersedia.
-
-## Batas X API
-
-X API memiliki rate limit per endpoint/jendela waktu serta batas pemakaian atau
-billing sesuai akses akun. Angka terbaru perlu dicek di developer console dan
-https://docs.x.com/x-api/fundamentals/rate-limits; dokumentasi live tidak dapat
-diakses dari environment ini saat perubahan Fonnte (HTTP 403).
-
-Interval 300 detik berarti sekitar 288 poll per hari atau 8.640 per 30 hari
-jika benar-benar berjalan terus, belum termasuk lookup user saat startup dan
-request tambahan untuk pagination. Ini jumlah request, bukan jumlah postingan
-atau biaya. `since_id` mengurangi pengambilan ulang postingan. HTTP 429 berarti
-rate limit; bot mencoba lagi pada interval berikutnya. Kuota/billing habis tetap
-memerlukan tindakan di developer console. Perbesar `POLL_SECONDS` untuk
-mengurangi frekuensi request.
-
-## Experiment: direct X scraper (read-only)
-
-Branch `experiment/direct-x-scraper` adds a separate `scrape_x.py` command.
-It does not import the WhatsApp sender, send messages, read Fonnte credentials,
-or modify the RSS bot database. Existing RSS bot code is unchanged.
-
-```sh
-python -m unittest -q
-python scrape_x.py
+# Cek PID dan command; pastikan ini proses monitor sebelum menghentikannya.
+ps -p "$(cat .local/monitor-judge.pid)" -o pid,stat,etime,args
 ```
 
-Uses installed Playwright Python and `/usr/bin/chromium`, inherited HTTPS proxy,
-and normal TLS verification. Reads only articles rendered on the public profile;
-no login automation, CAPTCHA bypass, private API, or RSS.app fallback. Output is
-JSON on stdout. It fails explicitly if no recognizable posts are rendered.
-It does not paginate, run a polling loop, or prove complete/reply coverage.
+Proses yang ada belum membuktikan pengambilan data berhasil; periksa juga log
+siklus terbaru. Pesan `No new posts to judge; no Gemini request` berarti tidak ada
+kandidat baru yang perlu dinilai pada siklus itu.
 
-17 local tests passed, including author filtering, sorting and deduplication.
-Live validation is blocked by the environment proxy denying x.com (CONNECT 403).
-The x.com domain addition is saved in the environment draft; applying it does
-not guarantee X will serve a public timeline. A login wall or JS resource
-restrictions may remain. This is an experiment, not a verified RSS replacement.
+## State dan penghematan kuota
 
-## LLM judge prototype (not activated)
+- `.local/monitor-judge.sqlite3`: cursor, antrean postingan, verdict, dan riwayat
+  notifikasi yang diterima API Fonnte.
+- `.local/judge-experiment.sqlite3`: cache hasil Gemini dan penghitung percobaan
+  API. Nama file ini dipertahankan agar riwayat budget tidak hilang.
+- Pada startup pertama, hanya postingan terbaru yang masuk antrean. Berikutnya,
+  postingan dengan ID lebih baru dimasukkan dan maksimal satu kandidat dinilai
+  per siklus. Postingan tanpa kata `reset`/`resets` dilewati tanpa panggilan Gemini.
+- Hasil di-cache berdasarkan teks, model, dan prompt. Request gagal juga dihitung
+  dalam budget lokal. Budget habis atau 429 membuat pekerjaan tetap tertunda.
+- Input lebih dari 4.000 karakter ditolak, bukan dipotong; output maksimal 256
+  token. Permintaan berturut-turut dalam satu proses diberi jeda minimal 15 detik.
+- Batas 15/hari adalah pengaman lokal, **bukan kuota resmi Gemini atau jaminan
+  free tier cukup**. Aplikasi lain pada project yang sama juga memakai kuota.
+- Pertahankan file database saat restart. Menghapusnya dapat menghilangkan
+  deduplikasi dan penghitung budget.
 
-`scrape_x.py --judge` passes each complete extracted text to an OpenAI-compatible
-API, with no keyword prefilter. Output is reset/not_reset/uncertain with a reason
-and exact evidence. Responses are schema-validated and cached by model, prompt,
-post ID and full text; invalid/incomplete responses are errors, never negatives.
-This read-only prototype cannot send WhatsApp and is not connected to the live bot.
-Requires JUDGE_API_KEY, JUDGE_MODEL and optionally JUDGE_BASE_URL; no requirements
-or paid API configuration have been activated. User prefers their ChatGPT
-subscription: it cannot be used as a Python API credential. An assistant-run
-review is possible while a task is running, not an unattended 5-minute loop from
-this chat. Existing live RSS bot still uses its previous keyword detection.
-20 local tests pass; mocked API tests validate plumbing only, not LLM accuracy.
-Full extracted text does not guarantee full original text when X renders a
-truncated post; thread/quote context and media are not fetched by this prototype.
+Riwayat kiriman dari `.local/state.sqlite3`, jika ada dari versi lama, diimpor
+untuk menghindari pengiriman ulang. File ini tidak dibutuhkan untuk instalasi baru.
 
-### Gemini free-tier guardrails (experiment only)
+## Batasan
 
-Default provider is now Gemini native generateContent API. Reuses the existing
-`gemini_api_key` variable (also accepts GEMINI_API_KEY); never prints its value.
-Default JUDGE_MODEL=gemini-2.5-flash; availability and actual free quota remain
-unverified. Requires generativelanguage.googleapis.com allowed in network settings.
+- Parser membaca JSON yang sudah tertanam dalam HTML publik X tanpa mengeksekusi
+  JavaScript atau memakai endpoint API tambahan. Hanya penulis Tibo yang diterima;
+  kutipan bersarang tidak diperlakukan sebagai postingan tersendiri.
+- Teks panjang diprioritaskan jika tersedia. Postingan yang membutuhkan ekspansi
+  tetapi tidak menyertakan teks lengkap dilewati. Tidak mengambil teks gambar
+  atau konteks thread tambahan.
+- Tidak ada pagination atau jaminan seluruh reply tercakup. Postingan terlambat
+  dengan ID di bawah cursor bisa terlewat. Perubahan HTML atau pembatasan akses X
+  bisa menghentikan pengambilan; hasil kosong yang tak dikenali dianggap error.
+- Filter awal bisa melewatkan pengumuman yang hanya memakai sinonim atau gambar.
+  Verdict LLM juga bisa salah dan tidak membuktikan limit akun penerima sudah reset.
+- Kegagalan kirim dicoba lagi tanpa mengulang judge. Crash atau timeout setelah
+  Fonnte menerima pesan tetapi sebelum pencatatan lokal bisa menyebabkan duplikat.
+  Penerimaan API tidak membuktikan pesan sampai ke perangkat penerima.
+- Codex Cloud tidak menjamin layanan 24/7. Proses bisa berhenti saat environment
+  ditangguhkan; startup ulang diperlukan setelah pemulihan.
 
-- Cache by full text/model/prompt: repeated posts do not consume API requests.
-- Default 20 attempted calls per UTC day, persisted in the experiment cache DB;
-  default 5 attempted calls per run. Failures count too; no automatic retries.
-- Calls at least 15 seconds apart in a single process (not a global rate limiter).
-- Maximum 4000 input characters per post; larger posts fail, never silently truncate.
-- Gemini output capped at 256 tokens, thinking budget 0 for the default model.
-- 429 stops the run. Caps stop the run before sending a further request.
-- These are local safety budgets, NOT a guarantee against provider quota exhaustion.
-  Other applications, multiple cache files, changed free-tier limits and token-based
-  quotas can exhaust the real quota sooner. Preserve .local/judge-experiment.sqlite3.
-- Initial live validation must use JUDGE_RUN_MAX_CALLS=1; don't judge all history.
+## Struktur kode
 
-23 local tests pass. No Fonnte call is performed by scrape_x.py --judge.
-Current runtime still lacks gemini_api_key despite its saved configuration entry;
-X and Gemini live requests currently fail at the proxy with CONNECT 403.
-No Gemini live request has succeeded, and no main merge has been performed.
+| File | Fungsi |
+| --- | --- |
+| `monitor_judge.py` | Entry point monitor, antrean, filter awal, dan pengiriman bersyarat |
+| `scrape_x.py` | Pengambilan dan parsing HTML publik X |
+| `llm_judge.py` | Gemini judge, validasi hasil, cache, dan budget |
+| `bot.py` | Menyediakan adapter Fonnte yang dipakai monitor; masih memuat kode versi lama |
+| `test_*.py` | Tes parser, judge, budget, antrean, dan pengiriman dengan mock |
 
-### Current experimental schedule and model
-
-Use Gemini 2.5 Flash-Lite (`JUDGE_MODEL=gemini-2.5-flash-lite`), selected as the
-budget text model among options in the user's free-tier screenshot. Screenshot
-shows 10 RPM, 250K TPM and 20 RPD for this model; not proof of future quota.
-Local default cap is 15 attempted requests per Pacific calendar day (rather than
-UTC), leaving 5 requests of nominal margin. Other clients share project quota.
-
-`python monitor_judge.py` runs one read-only cycle; `python monitor_judge.py --loop`
-polls X every 600 seconds, independent of the existing RSS bot's 300-second loop.
-No Fonnte sender is imported or called. First run queues only the newest visible
-post, then queues newer IDs and processes at most one pending post each cycle.
-No new post means no Gemini call; failed judgments remain pending. State lives
-in .local/monitor-judge.sqlite3 and the existing judge cache. Budget exhaustion
-leaves work pending. Old/late posts below the cursor are outside this experiment's
-coverage; full timeline/replies and long-form post expansion are not verified.
-This schedule means 144 source polls/day, NOT 144 Gemini requests/day.
-25 local tests passed. Actual startup currently blocked by missing runtime Gemini
-key. The experimental loop has not been launched and main has not been changed.
-
-### Reset prefilter before Gemini
-
-The experimental monitor now checks each queued post for the whole word `reset`
-or `resets` (case insensitive). No mention means a recorded skip with zero LLM
-calls. Mentions, including denials and jokes, pass the entire extracted text to
-Gemini; only the LLM decides reset/not_reset/uncertain. The prefilter never declares
-a reset. Posts using only synonyms, pictures, or other languages may be skipped.
-The 600-second interval, 15-attempt daily cap and no-Fonnte mode remain unchanged.
-27 local tests pass; judge accuracy and live scraper remain unverified.
-
-### Verified Gemini model update
-
-Default is now `gemini-3.5-flash-lite`. The API rejected 2.5 Flash-Lite for new
-users and rejected the old thinkingBudget parameter for 3.5. That parameter is
-removed; the 256-token output cap, cached verdicts and 15-attempt daily budget
-remain. Thinking-token usage has not been separately verified for this model.
-A live Gemini request classified the full Day 15 announcement as reset, citing
-`and reset. Enjoy.`. No Fonnte call was made. This verifies one real verdict,
-not general classification accuracy or the complete X scraping workflow.
-Model setting saved to environment draft; review/save/publish is separate.
-Chromium 154 uses ~/.local/share/pki/nssdb on this machine; the managed proxy CA
-was imported there with certutil, preserving TLS verification.
+Saat perubahan dokumentasi ini, 32 tes lokal telah lulus. Pengambilan postingan
+langsung dari X dan satu verdict Gemini telah diverifikasi live; angka itu bukan
+jaminan cakupan timeline atau akurasi seluruh hasil judge.
