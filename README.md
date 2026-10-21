@@ -38,7 +38,8 @@ flowchart TD
 
 Pesan notifikasi:
 
-> Info reset codex brader!  
+> Info reset codex brader!
+>
 > https://x.com/thsottiaux/status/POST_ID
 
 Mention semua anggota grup **belum diaktifkan** karena parameter pendukungnya
