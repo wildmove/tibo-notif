@@ -7,6 +7,48 @@ judge failures never send. Message: `Info reset codex brader!` plus post link.
 Requires gemini_api_key, FONNTE_TOKEN, WHATSAPP_TO (group IDs supported).
 Set JUDGE_MODEL=gemini-3.5-flash-lite; no RSS feed required for this workflow.
 
+## Notification flow
+
+```mermaid
+flowchart TD
+    A[Poll every 10 minutes] --> B[Read Tibo posts from public X HTML]
+    B --> C{New posts?}
+    C -- No --> W[Wait for next cycle]
+    C -- Yes --> D[Queue newer posts]
+    D --> E{Contains reset or resets?}
+    E -- No --> F[Record skip without Gemini call]
+    E -- Yes --> G{Cached judgment?}
+    G -- Yes --> J{Verdict}
+    G -- No --> H{Local API budget available?}
+    H -- No --> P[Keep pending for later]
+    H -- Yes --> I[Gemini 3.5 Flash-Lite reads entire extracted text]
+    I -- Error --> P
+    I -- Valid result --> S[Save judgment]
+    S --> J
+    J -- not_reset or uncertain --> N[No WhatsApp notification]
+    J -- reset --> K{Already notified?}
+    K -- Yes --> N
+    K -- No --> L[Send to WhatsApp group via Fonnte]
+    L -- Accepted --> M[Record notification]
+    L -- Failed --> R[Retry later using saved verdict]
+    F --> W
+    P --> W
+    N --> W
+    M --> W
+    R --> W
+    W --> A
+```
+
+- At most one new judgment per cycle; cached judgments reuse the previous result.
+- Default local budget: 15 attempted API calls per Pacific calendar day. This
+  is a safety cap, not a guarantee against shared project quota exhaustion.
+- First startup considers only the newest visible post; later polls queue newer IDs.
+- Message: **Info reset codex brader!** followed by the X post link.
+- Mention everyone is **not enabled**: no supported parameter has been verified
+  in Fonnte's documentation.
+- Source fetch failures do not mean there were no posts. Public-page coverage
+  and uptime depend on X access and the cloud environment staying active.
+
 Judgments persist before sending. Fonnte failures remain retryable without a new
 LLM call. Successful API acceptance is recorded in `notified`; previous RSS sent
 IDs are imported to prevent resending historical notifications. Crash/timeouts
