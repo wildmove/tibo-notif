@@ -2,11 +2,16 @@
 import argparse
 import fcntl
 import json
+import re
 from pathlib import Path
 import sqlite3
 import time
 from scrape_x import scrape
 from llm_judge import Judge
+
+
+def mentions_reset(text):
+    return bool(re.search(r'\bresets?\b', text, re.IGNORECASE))
 
 
 def enqueue(db, posts):
@@ -28,7 +33,15 @@ def enqueue(db, posts):
 def cycle(db, judge, fetch=scrape):
     posts = fetch()
     enqueue(db, posts)
-    pending = db.execute('SELECT id,text FROM queue WHERE verdict IS NULL ORDER BY LENGTH(id),id LIMIT 1').fetchone()
+    pending = None
+    for row in db.execute('SELECT id,text FROM queue WHERE verdict IS NULL ORDER BY LENGTH(id),id').fetchall():
+        if mentions_reset(row[1]):
+            pending = row
+            break
+        db.execute('UPDATE queue SET verdict=? WHERE id=?',
+                   (json.dumps({'status': 'skipped', 'reason': 'No reset mention; LLM not called'}), row[0]))
+        print(f'Post {row[0]} skipped: no reset mention; no Gemini request', flush=True)
+    db.commit()
     if pending:
         result = judge.evaluate({'id': pending[0], 'text': pending[1]})
         db.execute('UPDATE queue SET verdict=? WHERE id=?', (json.dumps(result), pending[0]))

@@ -170,3 +170,13 @@ coverage; full timeline/replies and long-form post expansion are not verified.
 This schedule means 144 source polls/day, NOT 144 Gemini requests/day.
 25 local tests passed. Actual startup currently blocked by missing runtime Gemini
 key. The experimental loop has not been launched and main has not been changed.
+
+### Reset prefilter before Gemini
+
+The experimental monitor now checks each queued post for the whole word `reset`
+or `resets` (case insensitive). No mention means a recorded skip with zero LLM
+calls. Mentions, including denials and jokes, pass the entire extracted text to
+Gemini; only the LLM decides reset/not_reset/uncertain. The prefilter never declares
+a reset. Posts using only synonyms, pictures, or other languages may be skipped.
+The 600-second interval, 15-attempt daily cap and no-Fonnte mode remain unchanged.
+27 local tests pass; judge accuracy and live scraper remain unverified.
