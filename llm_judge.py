@@ -1,6 +1,7 @@
 """Semantic reset judge for the read-only scraper experiment."""
 import hashlib
 import datetime
+from zoneinfo import ZoneInfo
 import time
 import json
 import os
@@ -31,7 +32,7 @@ class Judge:
             raise RuntimeError('JUDGE_PROVIDER must be gemini or openai')
         self.key = ((os.getenv('gemini_api_key') or os.getenv('GEMINI_API_KEY'))
                     if self.provider == 'gemini' else os.getenv('JUDGE_API_KEY'))
-        self.model = os.getenv('JUDGE_MODEL', 'gemini-2.5-flash' if self.provider == 'gemini' else '')
+        self.model = os.getenv('JUDGE_MODEL', 'gemini-2.5-flash-lite' if self.provider == 'gemini' else '')
         self.base = ('https://generativelanguage.googleapis.com/v1beta' if self.provider == 'gemini'
                      else os.getenv('JUDGE_BASE_URL', 'https://api.openai.com/v1').rstrip('/'))
         parsed = urllib.parse.urlsplit(self.base)
@@ -44,7 +45,7 @@ class Judge:
         self.db.execute('CREATE TABLE IF NOT EXISTS judge_usage (day TEXT PRIMARY KEY, calls INTEGER NOT NULL)')
         self.run_calls = 0
         self.last_request = None
-        self.daily_cap = int(os.getenv('JUDGE_DAILY_MAX_CALLS', '20'))
+        self.daily_cap = int(os.getenv('JUDGE_DAILY_MAX_CALLS', '15'))
         self.run_cap = int(os.getenv('JUDGE_RUN_MAX_CALLS', '5'))
         if self.daily_cap < 1 or self.run_cap < 1:
             raise RuntimeError('Judge budgets must be positive')
@@ -54,7 +55,7 @@ class Judge:
             raise RuntimeError('Local per-run judge budget reached; no request sent')
         if self.last_request is not None:
             time.sleep(max(0, 15 - (time.monotonic() - self.last_request)))
-        day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        day = datetime.datetime.now(ZoneInfo('America/Los_Angeles')).date().isoformat()
         self.db.execute('BEGIN IMMEDIATE')
         try:
             self.db.execute('INSERT OR IGNORE INTO judge_usage VALUES (?,0)', (day,))

@@ -150,3 +150,23 @@ unverified. Requires generativelanguage.googleapis.com allowed in network settin
 Current runtime still lacks gemini_api_key despite its saved configuration entry;
 X and Gemini live requests currently fail at the proxy with CONNECT 403.
 No Gemini live request has succeeded, and no main merge has been performed.
+
+### Current experimental schedule and model
+
+Use Gemini 2.5 Flash-Lite (`JUDGE_MODEL=gemini-2.5-flash-lite`), selected as the
+budget text model among options in the user's free-tier screenshot. Screenshot
+shows 10 RPM, 250K TPM and 20 RPD for this model; not proof of future quota.
+Local default cap is 15 attempted requests per Pacific calendar day (rather than
+UTC), leaving 5 requests of nominal margin. Other clients share project quota.
+
+`python monitor_judge.py` runs one read-only cycle; `python monitor_judge.py --loop`
+polls X every 600 seconds, independent of the existing RSS bot's 300-second loop.
+No Fonnte sender is imported or called. First run queues only the newest visible
+post, then queues newer IDs and processes at most one pending post each cycle.
+No new post means no Gemini call; failed judgments remain pending. State lives
+in .local/monitor-judge.sqlite3 and the existing judge cache. Budget exhaustion
+leaves work pending. Old/late posts below the cursor are outside this experiment's
+coverage; full timeline/replies and long-form post expansion are not verified.
+This schedule means 144 source polls/day, NOT 144 Gemini requests/day.
+25 local tests passed. Actual startup currently blocked by missing runtime Gemini
+key. The experimental loop has not been launched and main has not been changed.
