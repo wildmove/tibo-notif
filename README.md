@@ -126,3 +126,27 @@ this chat. Existing live RSS bot still uses its previous keyword detection.
 20 local tests pass; mocked API tests validate plumbing only, not LLM accuracy.
 Full extracted text does not guarantee full original text when X renders a
 truncated post; thread/quote context and media are not fetched by this prototype.
+
+### Gemini free-tier guardrails (experiment only)
+
+Default provider is now Gemini native generateContent API. Reuses the existing
+`gemini_api_key` variable (also accepts GEMINI_API_KEY); never prints its value.
+Default JUDGE_MODEL=gemini-2.5-flash; availability and actual free quota remain
+unverified. Requires generativelanguage.googleapis.com allowed in network settings.
+
+- Cache by full text/model/prompt: repeated posts do not consume API requests.
+- Default 20 attempted calls per UTC day, persisted in the experiment cache DB;
+  default 5 attempted calls per run. Failures count too; no automatic retries.
+- Calls at least 15 seconds apart in a single process (not a global rate limiter).
+- Maximum 4000 input characters per post; larger posts fail, never silently truncate.
+- Gemini output capped at 256 tokens, thinking budget 0 for the default model.
+- 429 stops the run. Caps stop the run before sending a further request.
+- These are local safety budgets, NOT a guarantee against provider quota exhaustion.
+  Other applications, multiple cache files, changed free-tier limits and token-based
+  quotas can exhaust the real quota sooner. Preserve .local/judge-experiment.sqlite3.
+- Initial live validation must use JUDGE_RUN_MAX_CALLS=1; don't judge all history.
+
+23 local tests pass. No Fonnte call is performed by scrape_x.py --judge.
+Current runtime still lacks gemini_api_key despite its saved configuration entry;
+X and Gemini live requests currently fail at the proxy with CONNECT 403.
+No Gemini live request has succeeded, and no main merge has been performed.
