@@ -43,3 +43,28 @@ class MonitorTests(unittest.TestCase):
             self.assertTrue(mentions_reset(text))
         for text in ['preset', 'hello', 'resetting']:
             self.assertFalse(mentions_reset(text))
+
+
+    def test_only_reset_sends_and_no_duplicate(self):
+        for verdict in ['reset', 'not_reset', 'uncertain']:
+            db = sqlite3.connect(':memory:')
+            judge, sender = Mock(), Mock()
+            judge.evaluate.return_value = {'verdict': verdict, 'reason': 'test', 'evidence': 'reset'}
+            fetch = lambda: [{'id': '1', 'text': 'reset'}]
+            cycle(db, judge, fetch, sender)
+            cycle(db, judge, fetch, sender)
+            self.assertEqual(sender.send.call_count, 1 if verdict == 'reset' else 0)
+            self.assertEqual(judge.evaluate.call_count, 1)
+
+    def test_failed_delivery_retries_without_judge(self):
+        db = sqlite3.connect(':memory:')
+        judge, sender = Mock(), Mock()
+        judge.evaluate.return_value = {'verdict': 'reset', 'reason': 'test', 'evidence': 'reset'}
+        sender.send.side_effect = RuntimeError('Fonnte down')
+        fetch = lambda: [{'id': '1', 'text': 'reset'}]
+        with self.assertRaises(RuntimeError):
+            cycle(db, judge, fetch, sender)
+        sender.send.side_effect = None
+        cycle(db, judge, fetch, sender)
+        self.assertEqual(judge.evaluate.call_count, 1)
+        self.assertEqual(sender.send.call_count, 2)

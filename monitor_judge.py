@@ -1,7 +1,8 @@
-"""Experimental 10-minute X -> Gemini monitor. Never sends WhatsApp."""
+"""10-minute X -> Gemini -> Fonnte monitor. Use --dry-run to disable sends."""
 import argparse
 import fcntl
 import json
+import os
 import re
 from pathlib import Path
 import sqlite3
@@ -30,7 +31,23 @@ def enqueue(db, posts):
     db.commit()
 
 
-def cycle(db, judge, fetch=scrape):
+def deliver(db, sender):
+    db.execute('CREATE TABLE IF NOT EXISTS notified (id TEXT PRIMARY KEY)')
+    if sender is None:
+        return
+    for ident, text, raw in db.execute('SELECT id,text,verdict FROM queue WHERE verdict IS NOT NULL').fetchall():
+        verdict = json.loads(raw)
+        if verdict.get('verdict') != 'reset':
+            continue
+        if db.execute('SELECT 1 FROM notified WHERE id=?', (ident,)).fetchone():
+            continue
+        sender.send({'id': ident, 'text': text})
+        db.execute('INSERT INTO notified VALUES (?)', (ident,))
+        db.commit()
+        print(f'Fonnte accepted reset notification for {ident}', flush=True)
+
+
+def cycle(db, judge, fetch=scrape, sender=None):
     posts = fetch()
     enqueue(db, posts)
     pending = None
@@ -46,23 +63,39 @@ def cycle(db, judge, fetch=scrape):
         result = judge.evaluate({'id': pending[0], 'text': pending[1]})
         db.execute('UPDATE queue SET verdict=? WHERE id=?', (json.dumps(result), pending[0]))
         db.commit()
-        print(json.dumps({'mode': 'no-whatsapp', 'post_id': pending[0], 'text': pending[1],
+        print(json.dumps({'mode': 'live' if sender else 'no-whatsapp', 'post_id': pending[0], 'text': pending[1],
                           'judgment': result}, ensure_ascii=False), flush=True)
     else:
         print('No new posts to judge; no Gemini request', flush=True)
+    deliver(db, sender)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--loop', action='store_true', help='Poll every 600 seconds; default one cycle')
+    parser.add_argument('--dry-run', action='store_true', help='Judge posts but never send Fonnte')
     args = parser.parse_args()
     Path('.local').mkdir(exist_ok=True)
     with open('.local/monitor-judge.lock', 'w') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            parser.error('Another experimental monitor is running')
+            parser.error('Another monitor is running')
         db = sqlite3.connect('.local/monitor-judge.sqlite3')
+        sender = None
+        if not args.dry_run:
+            if not os.getenv('FONNTE_TOKEN') or not os.getenv('WHATSAPP_TO'):
+                parser.error('Missing FONNTE_TOKEN or WHATSAPP_TO')
+            from bot import WhatsApp
+            sender = WhatsApp()
+            db.execute('CREATE TABLE IF NOT EXISTS notified (id TEXT PRIMARY KEY)')
+            # Carry over IDs accepted by the previous RSS sender, avoiding resends.
+            legacy = Path(os.getenv('STATE_PATH', '.local/state.sqlite3'))
+            if legacy.exists():
+                with sqlite3.connect('file:' + str(legacy.resolve()) + '?mode=ro', uri=True) as previous:
+                    for row in previous.execute('SELECT id FROM sent'):
+                        db.execute('INSERT OR IGNORE INTO notified VALUES (?)', row)
+                db.commit()
         try:
             judge = Judge()
         except RuntimeError as exc:
@@ -70,7 +103,9 @@ def main():
         while True:
             try:
                 judge.run_calls = 0
-                cycle(db, judge)
+                # Retry already-judged notifications without another Gemini call.
+                deliver(db, sender) if db.execute("SELECT 1 FROM sqlite_master WHERE name='queue'").fetchone() else None
+                cycle(db, judge, sender=sender)
             except RuntimeError as exc:
                 print(str(exc), flush=True)
                 if not args.loop:

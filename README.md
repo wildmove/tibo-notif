@@ -1,3 +1,25 @@
+# Active main workflow: X → Gemini → Fonnte
+
+`python monitor_judge.py --loop` now sends WhatsApp notifications by default.
+Use `--dry-run` to disable sends. Poll interval is 600 seconds.
+Only Gemini verdict `reset` sends; `not_reset`, `uncertain`, skipped posts and
+judge failures never send. Message: `Info reset codex brader!` plus post link.
+Requires gemini_api_key, FONNTE_TOKEN, WHATSAPP_TO (group IDs supported).
+Set JUDGE_MODEL=gemini-3.5-flash-lite; no RSS feed required for this workflow.
+
+Judgments persist before sending. Fonnte failures remain retryable without a new
+LLM call. Successful API acceptance is recorded in `notified`; previous RSS sent
+IDs are imported to prevent resending historical notifications. Crash/timeouts
+between provider acceptance and DB commit can still duplicate a message; API
+acceptance is not proof of handset delivery.
+
+Keep only this monitor running; stop the old `bot.py` RSS loop during migration.
+Log: `.local/monitor-judge.log`; PID: `.local/monitor-judge.pid`.
+Preserve both monitor and judge SQLite files. 32 local tests passed.
+The read-only historical notes below describe earlier versions.
+
+---
+
 # Current status: direct public X HTML scraper
 
 The experimental scraper now works without Chromium, Playwright, login cookies,
