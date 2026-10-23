@@ -97,22 +97,35 @@ python -u monitor_judge.py --loop
 Mode `--dry-run` tetap menyimpan antrean dan verdict. Verdict `reset` yang belum
 terkirim bisa dikirim ketika mode live dijalankan kemudian.
 
-Untuk menjalankan di background:
+Untuk menjalankan dengan supervisor (direkomendasikan):
 
 ```bash
 mkdir -p .local
-nohup python -u monitor_judge.py --loop >> .local/monitor-judge.log 2>&1 &
-echo $! > .local/monitor-judge.pid
+nohup python -u supervise.py >> .local/supervisor-bootstrap.log 2>&1 &
 ```
 
-Jalankan satu monitor saja. File lock mencegah dua proses monitor memakai state
-yang sama. Hentikan proses bot lama sebelum menggantinya agar tidak ada dua pengirim.
+Supervisor mencatat PID sendiri ke `.local/supervisor.pid` dan PID bot ke
+`.local/monitor-judge.pid`. Hentikan monitor manual yang lama sebelum memulai
+supervisor. File lock mencegah dua supervisor; supervisor menolak mulai jika
+monitor lain masih aktif.
+
+Jika bot keluar, supervisor menjalankan ulang dengan jeda 5 detik yang meningkat
+sampai maksimal 5 menit bila terus gagal. Bot memperbarui heartbeat setiap siklus;
+jika tidak ada heartbeat selama 15 menit, supervisor menghentikan proses macet
+lalu memulainya lagi. SIGTERM/SIGINT ke supervisor juga menghentikan child bot.
+Log bot dan supervisor bertimestamp UTC serta dirotasi otomatis.
+
+Error sementara ditangani pada siklus berikutnya; error tak terduga mencatat jenis
+dan lokasi stack tanpa nilai kredensial sebelum keluar untuk direstart supervisor.
+Supervisor tidak bertahan jika runtime cloud dimatikan/diganti; setelah restore,
+jalankan perintah startup di atas lagi. Tidak ada jaminan layanan 24/7.
 
 ## Melihat status
 
 ```bash
 # Log terbaru atau pantau langsung (Ctrl+C hanya menghentikan tampilan log).
 tail -n 20 .local/monitor-judge.log
+tail -n 20 .local/supervisor.log
 tail -f .local/monitor-judge.log
 
 # Cek PID dan command; pastikan ini proses monitor sebelum menghentikannya.
@@ -167,12 +180,13 @@ untuk menghindari pengiriman ulang. File ini tidak dibutuhkan untuk instalasi ba
 
 | File | Fungsi |
 | --- | --- |
+| `supervise.py` | Supervisor, restart backoff, watchdog heartbeat, dan shutdown child |
 | `monitor_judge.py` | Entry point monitor, antrean, filter awal, dan pengiriman bersyarat |
 | `scrape_x.py` | Pengambilan dan parsing HTML publik X |
 | `llm_judge.py` | Gemini judge, validasi hasil, cache, dan budget |
 | `bot.py` | Menyediakan adapter Fonnte yang dipakai monitor; masih memuat kode versi lama |
 | `test_*.py` | Tes parser, judge, budget, antrean, dan pengiriman dengan mock |
 
-Saat perubahan dokumentasi ini, 32 tes lokal telah lulus. Pengambilan postingan
+Saat perubahan dokumentasi ini, 34 tes lokal telah lulus. Pengambilan postingan
 langsung dari X dan satu verdict Gemini telah diverifikasi live; angka itu bukan
 jaminan cakupan timeline atau akurasi seluruh hasil judge.

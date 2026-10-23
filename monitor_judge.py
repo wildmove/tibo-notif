@@ -2,6 +2,9 @@
 import argparse
 import fcntl
 import json
+import logging
+from logging.handlers import RotatingFileHandler
+import traceback
 import os
 import re
 from pathlib import Path
@@ -9,6 +12,20 @@ import sqlite3
 import time
 from scrape_x import scrape
 from llm_judge import Judge
+
+
+LOG = logging.getLogger('monitor')
+
+
+def log(message, **kwargs):
+    LOG.info('%s', message)
+
+
+def heartbeat():
+    path = Path('.local/monitor-judge.heartbeat')
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(str(time.time()))
+    temporary.replace(path)
 
 
 def mentions_reset(text):
@@ -44,7 +61,7 @@ def deliver(db, sender):
         sender.send({'id': ident, 'text': text})
         db.execute('INSERT INTO notified VALUES (?)', (ident,))
         db.commit()
-        print(f'Fonnte accepted reset notification for {ident}', flush=True)
+        log(f'Fonnte accepted reset notification for {ident}', flush=True)
 
 
 def cycle(db, judge, fetch=scrape, sender=None):
@@ -57,16 +74,16 @@ def cycle(db, judge, fetch=scrape, sender=None):
             break
         db.execute('UPDATE queue SET verdict=? WHERE id=?',
                    (json.dumps({'status': 'skipped', 'reason': 'No reset mention; LLM not called'}), row[0]))
-        print(f'Post {row[0]} skipped: no reset mention; no Gemini request', flush=True)
+        log(f'Post {row[0]} skipped: no reset mention; no Gemini request', flush=True)
     db.commit()
     if pending:
         result = judge.evaluate({'id': pending[0], 'text': pending[1]})
         db.execute('UPDATE queue SET verdict=? WHERE id=?', (json.dumps(result), pending[0]))
         db.commit()
-        print(json.dumps({'mode': 'live' if sender else 'no-whatsapp', 'post_id': pending[0], 'text': pending[1],
+        log(json.dumps({'mode': 'live' if sender else 'no-whatsapp', 'post_id': pending[0], 'text': pending[1],
                           'judgment': result}, ensure_ascii=False), flush=True)
     else:
-        print('No new posts to judge; no Gemini request', flush=True)
+        log('No new posts to judge; no Gemini request', flush=True)
     deliver(db, sender)
 
 
@@ -76,6 +93,12 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Judge posts but never send Fonnte')
     args = parser.parse_args()
     Path('.local').mkdir(exist_ok=True)
+    handler = RotatingFileHandler('.local/monitor-judge.log', maxBytes=5_000_000, backupCount=3)
+    formatter = logging.Formatter('%(asctime)s UTC %(levelname)s %(message)s')
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
+    LOG.addHandler(handler)
+    LOG.setLevel(logging.INFO)
     with open('.local/monitor-judge.lock', 'w') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -100,16 +123,30 @@ def main():
             judge = Judge()
         except RuntimeError as exc:
             parser.error(str(exc))
+        LOG.info('Monitor started pid=%s interval=600 dry_run=%s', os.getpid(), args.dry_run)
+        heartbeat()
         while True:
+            started = time.monotonic()
             try:
                 judge.run_calls = 0
                 # Retry already-judged notifications without another Gemini call.
-                deliver(db, sender) if db.execute("SELECT 1 FROM sqlite_master WHERE name='queue'").fetchone() else None
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='queue'").fetchone():
+                    deliver(db, sender)
                 cycle(db, judge, sender=sender)
-            except RuntimeError as exc:
-                print(str(exc), flush=True)
+            except (RuntimeError, TimeoutError, OSError, ValueError, sqlite3.Error) as exc:
+                db.rollback()
+                LOG.error('Cycle failed: %s; retry next cycle', type(exc).__name__)
                 if not args.loop:
                     return 1
+            except Exception as exc:
+                db.rollback()
+                # Record stack locations, never exception values or local variables.
+                frames = ' > '.join(f'{Path(f.filename).name}:{f.lineno}:{f.name}'
+                                    for f in traceback.extract_tb(exc.__traceback__))
+                LOG.error('Unexpected error %s at %s', type(exc).__name__, frames)
+                raise SystemExit(1) from None
+            heartbeat()
+            LOG.info('Cycle completed in %.1fs; next poll in 600s', time.monotonic() - started)
             if not args.loop:
                 return 0
             time.sleep(600)
