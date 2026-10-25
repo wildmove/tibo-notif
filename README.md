@@ -190,3 +190,12 @@ untuk menghindari pengiriman ulang. File ini tidak dibutuhkan untuk instalasi ba
 Saat perubahan dokumentasi ini, 34 tes lokal telah lulus. Pengambilan postingan
 langsung dari X dan satu verdict Gemini telah diverifikasi live; angka itu bukan
 jaminan cakupan timeline atau akurasi seluruh hasil judge.
+
+### Konteks judge
+
+Judge mempertimbangkan seri harian `Day N/` Tibo: frasa singkat seperti
+`Day 20/ Rest and reset` adalah pengumuman reset meskipun tidak menyebut Codex
+atau limit. Konteks ini tidak mengalahkan penyangkalan atau janji masa depan.
+Prompt versi 2 diverifikasi live dengan pengumuman Day 20 dan contoh
+`Day 21/ No reset today`. Pembaruan prompt mengganti cache key untuk penilaian
+berikutnya; verdict lama di antrean tidak dinilai ulang secara massal.
